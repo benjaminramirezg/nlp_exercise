@@ -9,15 +9,24 @@
 Library with classes to train text classification models and predict with them
 """
 
+import os
+import re
 import json
 import pickle
+import string
+import logging
 import numpy as np
+import pandas as pd
 from sklearn.utils import shuffle
+from nltk.tokenize import TweetTokenizer
 from tensorflow.keras.preprocessing import text
 
+from tensorflow.keras.models import load_model
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.metrics import Precision, Recall
 from tensorflow.keras.layers import Dense, Activation, Dropout
+
+log = logging.getLogger('models')
 
 _HYPERPARAMETERS_DESCRIPTION = {
     'num_words': int,
@@ -28,40 +37,80 @@ _HYPERPARAMETERS_DESCRIPTION = {
     'epochs': int
 }
 
+_TEXT_FIELD_NAME = 'text'
+_LABEL_FIELD_NAME = 'label'
+
+_MODEL_FILE_NAME = 'model.h5'
+_TOKENIZER_FILE_NAME = 'tokenizer.pkl'
+_NORMALIZER_FILE_NAME = 'normalizer.pkl'
+_VECTORIZER_FILE_NAME = 'vectorizer.pkl'
+
 class TextNormalizer(object):
     """
     Define objects intended to normalize text
     """
-    def __init__(self, parameters=None):
+    def __init__(self, normalize_unicode=None, remove_break_lines=None):
         """
         Initialize the object with specific parameters
         """
-        self._parameters = parameters
+        self._normalize_unicode = normalize_unicode
+        self._remove_break_lines = remove_break_lines
 
     def normalize(self, text):
         """
         Normalize text passed as argument
         """
+        if self._normalize_unicode:
+            try:
+                encoded_text = text.encode('unicode-escape')
+                encoded_text = encoded_text.replace(b'\\\\u', b'\\u')
+                decoded_text = encoded_text.decode('unicode-escape')
+                text = decoded_text.encode('utf-8', 'ignore').decode('utf-8')
+            except UnicodeEncodeError:
+                log.info('[ Warning ] Unable to encode Unicode characters')
+            except UnicodeDecodeError:
+                log.info('[ Warning ] Unable to dencode Unicode characters')
+
+        if self._normalize_unicode:
+            text = text.replace("\n", " ")
+
         return text
 
 class TextTokenizer(object):
     """
     Define objects intended to tokenize text
     """
-    def __init__(self, parameters=None):
+    def __init__(self, filter_punctuation=None, filters_regex=None, lower=None):
         """
         Initialize the object with specific parameters
         """
-        self._parameters = parameters
+        self._tokenizer = TweetTokenizer()
+        self._filter_punctuation = filter_punctuation
+        self._lower = lower
+        if filters_regex is None:
+            filters_regex = []
+        elif isinstance(filters_regex, str):
+            filters_regex = [filters_regex]
+        elif not isinstance(filters_regex, list):
+            raise ValueError('Value for parameter filters_regex must be a string or an array')
+        self._filters_regex = filters_regex
 
     def tokenize(self, text):
         """
         Tokenize text passed as argument
         """
-        tokens = []
+        tokens = self._tokenizer.tokenize(text)
+
+        if self._filter_punctuation:
+            tokens = list(filter(lambda token: token not in string.punctuation, tokens))
+        for filter_regex in self._filters_regex:
+            tokens = list(filter(lambda token: not re.match(filter_regex, token), tokens))
+        if self._lower:
+            tokens = [token.lower() for token in tokens]
+
         return tokens
 
-class BinaryClassifierTrainer(object):
+class BinaryTextClassifierTrainer(object):
     """
     Define objects to train binary text classifiers (1/0)
     """
@@ -87,29 +136,29 @@ class BinaryClassifierTrainer(object):
             filehandle = open(filepath, 'r', encoding='utf-8')
             file_content = filehandle.read()
             filehandle.close()
-        except:
-            raise Exception(OSError(
+        except OSError:
+            raise OSError(
         'Unable to open config file {}'.format(filepath)
-        ))
+        )
 
         hyperparameters = None
         try:
             hyperparameters = json.loads(file_content)
-        except:
-            raise Exception(ValueError(
+        except ValueError:
+            raise ValueError(
         'Unable to parse json config file {}'.format(filepath)
-        ))
+        )
 
-        for hyperparameter, type_ in HYPERPARAMETERS_DESCRIPTION.items():
+        for hyperparameter, type_ in _HYPERPARAMETERS_DESCRIPTION.items():
             if hyperparameter not in hyperparameters:
-                raise Exception(AttributeError(
+                raise AttributeError(
             'Mandatory hyperparameter {} not provided'.format(hyperparameter)
-            ))
+            )
             value = hyperparameters[hyperparameter]
             if not isinstance(value, type_):
-                raise Exception(ValueError(
+                raise ValueError(
             'Wrong value {} provided for hyperparameter {}'.format(str(value), hyperparameter)
-            ))
+            )
 
         return hyperparameters
 
@@ -118,18 +167,18 @@ class BinaryClassifierTrainer(object):
         Return hyperparameter values if provided. Otherwise default
         values are provided
         """
-        if hyperparameters is None:
+        if not hyperparameters:
             hyperparameters = self._default_hyperparameters
         else:
-            for hyperparameter, type_ in HYPERPARAMETERS_DESCRIPTION.items():
+            for hyperparameter, type_ in _HYPERPARAMETERS_DESCRIPTION.items():
                 if hyperparameter not in hyperparameters:
                     hyperparameters[hyperparameter] = self._default_hyperparameters[hyperparameter]
                 else:
                     value = hyperparameters[hyperparameter]
                     if not isinstance(value, type_):
-                        raise Exception(ValueError(
+                        raise ValueError(
                     'Wrong value {} provided for hyperparameter {}'.format(str(value), hyperparameter)
-                    ))
+                    )
         return hyperparameters
 
     def _create_model(self, hyperparameters=None):
@@ -163,10 +212,10 @@ class BinaryClassifierTrainer(object):
         Save model artifacts
         """
 
-        model_path = '{}/model.h5'.format(output_folder)
-        vectorizer_path = '{}/vectorizer.pkl'.format(output_folder)
-        normalizer_path = '{}/normalizer.pkl'.format(output_folder)
-        tokenizer_path = '{}/tokenizer.pkl'.format(output_folder)
+        model_path = os.path.join(output_folder, _MODEL_FILE_NAME)
+        vectorizer_path = os.path.join(output_folder, _VECTORIZER_FILE_NAME)
+        normalizer_path = os.path.join(output_folder, _NORMALIZER_FILE_NAME)
+        tokenizer_path = os.path.join(output_folder, _TOKENIZER_FILE_NAME)
 
         artifacts = [
             [vectorizer, vectorizer_path],
@@ -209,9 +258,37 @@ class BinaryClassifierTrainer(object):
         Trains a model given training data and a specific
         set of hyperparameters
         """
+        if not dataset:
+            raise AttributeError('Not dataset provided to train')
+
+        if not isinstance(dataset, pd.DataFrame):
+            raise ValueError('Dataset to train must be a DataFrame')
+
+        if _TEXT_FIELD_NAME not in dataset.columns:
+            raise AttributeError(
+        'No mandatory column {} in dataset'. format(_TEXT_FIELD_NAME)
+        )
+
+        if _LABEL_FIELD_NAME not in dataset.columns:
+            raise AttributeError(
+        'No mandatory column {} in dataset'. format(_LABEL_FIELD_NAME)
+        )
+
+        if hyperparameters and not isinstance(hyperparameters, dict):
+            raise ValueError('Hyperparameters must be a dictionary')
+
+        if output_folder and not isinstance(output_folder, str):
+            raise ValueError('Output folder must be a string')
+
+        if not os.path.isdir(output_folder):
+            try:
+                os.makedirs(output_folder)
+            except OSError:
+                raise OSError('Unable to create output folder {}')
+
         hyperparameters = self._get_hyperparameters(hyperparameters)
 
-        num_words = hyperparameters['num_words'] if 'num_words' in 
+        num_words = hyperparameters['num_words'] 
         batch_size = hyperparameters['batch_size']
         epochs = hyperparameters['epochs']
         train_percent = hyperparameters['train_percent']
@@ -220,14 +297,14 @@ class BinaryClassifierTrainer(object):
             dataset=dataset, train_percent=train_percent
         )
 
-        train_texts = train_dataset['text'].to_list()
+        train_texts = train_dataset[_TEXT_FIELD_NAME].to_list()
         train_texts = [self._normalizer.normalizer(text) for text in train_texts]
         train_texts = [self._tokenizer.tokenizer(text) for text in train_texts]
-        eval_texts = eval_dataset['text'].to_list()
+        eval_texts = eval_dataset[_TEXT_FIELD_NAME].to_list()
         eval_texts = [self._normalizer.normalizer(text) for text in eval_texts]
         eval_texts = [self._tokenizer.tokenizer(text) for text in eval_texts]
-        train_labels = train_dataset['label'].to_list()
-        eval_labels = eval_dataset['label'].to_list()
+        train_labels = train_dataset[_LABEL_FIELD_NAME].to_list()
+        eval_labels = eval_dataset[_LABEL_FIELD_NAME].to_list()
 
         vectorizer = text.Tokenizer(num_words=num_words)
         vectorizer.fit_on_texts(train_texts)
@@ -242,3 +319,61 @@ class BinaryClassifierTrainer(object):
         metrics = self._evaluate_model(model=model, x=x_eval, y=y_eval)
 
         return metrics
+
+class BinaryTextClassifier(object):
+    """
+    Define objects to load a binary text classifiers model and predict with it
+    """
+
+    def __init__(self, artifacts_folder=None):
+        """
+        Loads model from serialized objctes in artifacts_folder
+        """
+        if not os.path.isdir(artifacts_folder):
+            raise ValueError('Artifacts folder {} not found'.format(artifacts_folder))
+
+        model_path = os.path.join(artifacts_folder, _MODEL_FILE_NAME)
+        vectorizer_path = os.path.join(artifacts_folder, _VECTORIZER_FILE_NAME)
+        normalizer_path = os.path.join(artifacts_folder, _NORMALIZER_FILE_NAME)
+        tokenizer_path = os.path.join(artifacts_folder, _TOKENIZER_FILE_NAME)
+
+        if not os.path.isfile(model_path):
+            raise ValueError('File for model {} not found'.format(model_path))
+        if not os.path.isfile(vectorizer_path):
+            raise ValueError('File for vectorizer {} not found'.format(vectorizer_path))
+        if not os.path.isfile(tokenizer_path):
+            raise ValueError('File for tokenizer {} not found'.format(tokenizer_path))
+        if not os.path.isfile(normalizer_path):
+            raise ValueError('File for normalizer {} not found'.format(normalizer_path))
+
+        self._normalizer = self._load_pickle(normalizer_path)
+        self._tokenizer = self._load_pickle(tokenizer_path)
+        self._vectorizer = self._load_pickle(vectorizer_path)
+        self._model = load_model(model_path)
+
+    def _load_pickle(self, path):
+        """Loads pickle serialized object"""
+        artifact = None
+        with open(path, 'rb') as filehandle:
+            artifact = pickle.load(filehandle)
+        return artifact
+
+    def predict(self, texts):
+        """
+        Takes a text and returns a value between 1 and 0
+        according to the loaded model
+        """
+        if isinstance(texts, str):
+            texts = [texts]
+        elif not isinstance(texts, list):
+            raise ValueError('Texts argument must be a string or a list of strings')
+
+        texts = [self._normalizer.normalize(text) for text in texts]
+        texts = [self._tokenizer.tokenize(text) for text in texts]
+        x = [self._vectorizer.tokenize(text) for text in texts]
+
+        predictions = self._model.predict(x)
+        if len(predictions) == 1:
+            predictions = predictions[0]
+
+        return predictions

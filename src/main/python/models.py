@@ -20,6 +20,7 @@ import pandas as pd
 from sklearn.utils import shuffle
 from nltk.tokenize import TweetTokenizer
 from tensorflow.keras.preprocessing import text
+from nltk.corpus import stopwords as nltk_stopwords
 
 from tensorflow.keras.models import load_model
 from tensorflow.keras.models import Sequential
@@ -37,13 +38,29 @@ _HYPERPARAMETERS_DESCRIPTION = {
     'epochs': int
 }
 
-_TEXT_FIELD_NAME = 'text'
-_LABEL_FIELD_NAME = 'label'
-
 _MODEL_FILE_NAME = 'model.h5'
 _TOKENIZER_FILE_NAME = 'tokenizer.pkl'
 _NORMALIZER_FILE_NAME = 'normalizer.pkl'
 _VECTORIZER_FILE_NAME = 'vectorizer.pkl'
+
+_STOPWORDS_SUPPORTED_LANGUAGES = ['english']
+
+class ConfigManager(object):
+    """Defines objects to manage configuration"""
+
+    def __init__(self, config_file=None):
+        """Loads parameter values from fole"""
+        parameters = {}
+        with open(config_file, 'r') as filehandle:
+            parameters = json.loads(filehandle.read())
+        self._parameters = parameters
+
+    def get_(self, param):
+        """Returns the value in the config for a paramaters"""
+        value = None
+        if param in self._parameters:
+            value = self._parameters[param]
+        return value
 
 class TextNormalizer(object):
     """
@@ -80,20 +97,44 @@ class TextTokenizer(object):
     """
     Define objects intended to tokenize text
     """
-    def __init__(self, filter_punctuation=None, filters_regex=None, lower=None):
+    def __init__(
+        self, filter_punctuation=None, regex_filters=None,
+        lower=None, stopwords_language=None
+        ):
         """
         Initialize the object with specific parameters
         """
         self._tokenizer = TweetTokenizer()
         self._filter_punctuation = filter_punctuation
         self._lower = lower
-        if filters_regex is None:
-            filters_regex = []
-        elif isinstance(filters_regex, str):
-            filters_regex = [filters_regex]
-        elif not isinstance(filters_regex, list):
-            raise ValueError('Value for parameter filters_regex must be a string or an array')
-        self._filters_regex = filters_regex
+
+        if regex_filters is None:
+            regex_filters = []
+
+        elif isinstance(regex_filters, str):
+            regex_filters = [regex_filters]
+        elif not isinstance(regex_filters, list):
+            raise ValueError('Value for filters_regex must be string or array')
+
+        self._regex_filters = regex_filters
+        
+        stopwords = None
+
+        if stopwords_language is None:
+            stopwords = []
+        elif not isinstance(stopwords_language, str):
+            raise ValueError(
+        'Value for stopwords_language must be a string'
+        )
+        elif stopwords_language not in _STOPWORDS_SUPPORTED_LANGUAGES:
+            raise ValueError(
+        'Available identifiers for stopword languages are: {}'.format(
+            ', '.join(_STOPWORDS_SUPPORTED_LANGUAGES)
+            ))
+        else:
+            stopwords = set(nltk_stopwords.words(stopwords_language))
+
+        self._stopwords = stopwords
 
     def tokenize(self, text):
         """
@@ -103,10 +144,12 @@ class TextTokenizer(object):
 
         if self._filter_punctuation:
             tokens = list(filter(lambda token: token not in string.punctuation, tokens))
-        for filter_regex in self._filters_regex:
-            tokens = list(filter(lambda token: not re.match(filter_regex, token), tokens))
+        for regex_filter in self._regex_filters:
+            tokens = list(filter(lambda token: not re.match(regex_filter, token), tokens))
         if self._lower:
             tokens = [token.lower() for token in tokens]
+        if self._stopwords:
+            tokens = list(filter(lambda token: token not in self._stopwords, tokens))
 
         return tokens
 
@@ -115,51 +158,54 @@ class BinaryTextClassifierTrainer(object):
     Define objects to train binary text classifiers (1/0)
     """
 
-    def __init__(self, normalizer=None, tokenizer=None, config_filepath=None):
+    def __init__(self, normalizer=None, tokenizer=None, default_hyperparameters=None):
         """
         Initialize the object with specific utilities to
         preprocess text
         """
         self._normalizer = normalizer
         self._tokenizer = tokenizer
-        self._default_hyperparameters = {}
-        self._default_hyperparameters = self._get_default_hyperparameters(
-            config_filepath
-            )
 
-    def _get_default_hyperparameters(self, filepath):
-        """
-        Read default hyperparameters from config file
-        """
-        file_content = None
-        try:
-            filehandle = open(filepath, 'r', encoding='utf-8')
-            file_content = filehandle.read()
-            filehandle.close()
-        except OSError:
-            raise OSError(
-        'Unable to open config file {}'.format(filepath)
+        self._check_default_hyperparameters(
+            default_hyperparameters
         )
+        self._default_hyperparameters = default_hyperparameters
 
-        hyperparameters = None
-        try:
-            hyperparameters = json.loads(file_content)
-        except ValueError:
-            raise ValueError(
-        'Unable to parse json config file {}'.format(filepath)
-        )
+    def _check_default_hyperparameters(self, hyperparameters):
+        """
+        Checks that all hyperparameters have been provided
+        and in a proper way
+        """
 
         for hyperparameter, type_ in _HYPERPARAMETERS_DESCRIPTION.items():
             if hyperparameter not in hyperparameters:
                 raise AttributeError(
             'Mandatory hyperparameter {} not provided'.format(hyperparameter)
             )
-            value = hyperparameters[hyperparameter]
-            if not isinstance(value, type_):
-                raise ValueError(
-            'Wrong value {} provided for hyperparameter {}'.format(str(value), hyperparameter)
+
+        self._check_hyperparameters(hyperparameters)
+
+    def _check_hyperparameters(self, hyperparameters):
+        """
+        Checks that hyperparameters provided are correct
+        """
+        for hyperparameter in hyperparameters:
+            if hyperparameter not in _HYPERPARAMETERS_DESCRIPTION:
+                raise AttributeError(
+            'Unknown item {} provided as hyperparameter'.format(
+                hyperparameter
+                )
             )
 
+            value = hyperparameters[hyperparameter]
+            type_ = _HYPERPARAMETERS_DESCRIPTION[hyperparameter]
+
+            if not isinstance(value, type_):
+                raise ValueError(
+            'Wrong value {} provided for hyperparameter {}'.format(
+                str(value), hyperparameter
+                )
+            )
         return hyperparameters
 
     def _get_hyperparameters(self, hyperparameters):
@@ -170,15 +216,9 @@ class BinaryTextClassifierTrainer(object):
         if not hyperparameters:
             hyperparameters = self._default_hyperparameters
         else:
-            for hyperparameter, type_ in _HYPERPARAMETERS_DESCRIPTION.items():
+            for hyperparameter, value in self._default_hyperparameters.items:
                 if hyperparameter not in hyperparameters:
-                    hyperparameters[hyperparameter] = self._default_hyperparameters[hyperparameter]
-                else:
-                    value = hyperparameters[hyperparameter]
-                    if not isinstance(value, type_):
-                        raise ValueError(
-                    'Wrong value {} provided for hyperparameter {}'.format(str(value), hyperparameter)
-                    )
+                    hyperparameters[hyperparameter] = value
         return hyperparameters
 
     def _create_model(self, hyperparameters=None):
@@ -253,25 +293,38 @@ class BinaryTextClassifierTrainer(object):
         test_texts = dataset[train_size:]
         return train_texts, test_texts
 
-    def train(self, dataset=None, hyperparameters=None, output_folder=None):
+    def train(
+        self, dataset=None, hyperparameters=None, output_folder=None,
+        text_field=None, label_field=None
+        ):
         """
         Trains a model given training data and a specific
         set of hyperparameters
         """
-        if not dataset:
+        if dataset is None:
             raise AttributeError('Not dataset provided to train')
 
         if not isinstance(dataset, pd.DataFrame):
             raise ValueError('Dataset to train must be a DataFrame')
 
-        if _TEXT_FIELD_NAME not in dataset.columns:
+        if not text_field:
             raise AttributeError(
-        'No mandatory column {} in dataset'. format(_TEXT_FIELD_NAME)
+        'No mandatory parameter text_field provided'
         )
 
-        if _LABEL_FIELD_NAME not in dataset.columns:
+        if text_field not in dataset.columns:
             raise AttributeError(
-        'No mandatory column {} in dataset'. format(_LABEL_FIELD_NAME)
+        'Column {} provided as text_field not found in dataset'. format(text_field)
+        )
+
+        if not label_field:
+            raise AttributeError(
+        'No mandatory parameter label_field provided'
+        )
+
+        if label_field not in dataset.columns:
+            raise AttributeError(
+        'Column {} provided as label_field not found in dataset'. format(label_field)
         )
 
         if hyperparameters and not isinstance(hyperparameters, dict):
@@ -297,14 +350,14 @@ class BinaryTextClassifierTrainer(object):
             dataset=dataset, train_percent=train_percent
         )
 
-        train_texts = train_dataset[_TEXT_FIELD_NAME].to_list()
-        train_texts = [self._normalizer.normalizer(text) for text in train_texts]
-        train_texts = [self._tokenizer.tokenizer(text) for text in train_texts]
-        eval_texts = eval_dataset[_TEXT_FIELD_NAME].to_list()
-        eval_texts = [self._normalizer.normalizer(text) for text in eval_texts]
-        eval_texts = [self._tokenizer.tokenizer(text) for text in eval_texts]
-        train_labels = train_dataset[_LABEL_FIELD_NAME].to_list()
-        eval_labels = eval_dataset[_LABEL_FIELD_NAME].to_list()
+        train_texts = train_dataset[text_field].to_list()
+        train_texts = [self._normalizer.normalize(text) for text in train_texts]
+        train_texts = [self._tokenizer.tokenize(text) for text in train_texts]
+        eval_texts = eval_dataset[text_field].to_list()
+        eval_texts = [self._normalizer.normalize(text) for text in eval_texts]
+        eval_texts = [self._tokenizer.tokenize(text) for text in eval_texts]
+        train_labels = train_dataset[label_field].to_list()
+        eval_labels = eval_dataset[label_field].to_list()
 
         vectorizer = text.Tokenizer(num_words=num_words)
         vectorizer.fit_on_texts(train_texts)
@@ -370,7 +423,7 @@ class BinaryTextClassifier(object):
 
         texts = [self._normalizer.normalize(text) for text in texts]
         texts = [self._tokenizer.tokenize(text) for text in texts]
-        x = [self._vectorizer.tokenize(text) for text in texts]
+        x = self._vectorizer.texts_to_matrix(texts, mode="tfidf")
 
         predictions = self._model.predict(x)
         if len(predictions) == 1:

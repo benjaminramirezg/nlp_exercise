@@ -71,7 +71,25 @@ It loads the model saved in `models/model01` and predicts for every texts in `da
 
 ## Analysis
 
-The dataset proposed in the exercise can be found in `data/Tweets.xlsx`. It was originaly provided in _xlsx_ format. I was then saved also in raw csv format, a more handy format to be processed by code: `data/Tweets.csv`.
+The dataset proposed in the exercise can be found in `data/Tweets.xlsx`. It was originaly provided in _xlsx_ format. It was then saved also in raw csv format, a more handy format to be processed by code: `data/Tweets.csv`.
+
+The code used to do an exploratoy analysis of the dataset can be found in `notebooks/dataset_analysis.csv`. According the conclusions of the analysis, one specific approach will be used to solve the exercise.
+
+The analysis followed the next steps:
+
+- Checking the size of the dataset
+- Checking the consistency of the data model in the dataset
+- Checking if the dataset is balanced
+- Checking the nature and quality of the text
+- Checking the content of the texts
+
+The conclusions of the exploratory analysis have been the following:
+
+- The dataset is highly unbalanced, but there may be enough instances of the positive class to undersample the negative one and train a model with a balanced version of the dataset
+- Texts need certain cleaning and normalization
+- There are texts in different languages, but the vast majority of them have been written in English, so, at least for a first baseline approach not multilingual approach need to be assumed
+- Positive texts seem to have very characteristic words and phrases, so a Bag of Words representation of text may be enough to fed a binary classifier
+
 
 ## Solution
 

@@ -21,6 +21,7 @@ from sklearn.utils import shuffle
 from nltk.tokenize import TweetTokenizer
 from tensorflow.keras.preprocessing import text
 from nltk.corpus import stopwords as nltk_stopwords
+from gensim.models.phrases import Phrases, ENGLISH_CONNECTOR_WORDS
 
 from tensorflow.keras.models import load_model
 from tensorflow.keras.models import Sequential
@@ -42,6 +43,7 @@ _MODEL_FILE_NAME = 'model.h5'
 _TOKENIZER_FILE_NAME = 'tokenizer.pkl'
 _NORMALIZER_FILE_NAME = 'normalizer.pkl'
 _VECTORIZER_FILE_NAME = 'vectorizer.pkl'
+_PHRASER_FILE_NAME = 'phraser.pkl'
 
 _STOPWORDS_SUPPORTED_LANGUAGES = ['english']
 
@@ -88,8 +90,9 @@ class TextNormalizer(object):
             except UnicodeDecodeError:
                 log.info('[ Warning ] Unable to dencode Unicode characters')
 
-        if self._normalize_unicode:
+        if self._remove_break_lines:
             text = text.replace("\n", " ")
+            text = text.replace("\\n", " ")
 
         return text
 
@@ -104,22 +107,15 @@ class TextTokenizer(object):
         """
         Initialize the object with specific parameters
         """
-        self._tokenizer = TweetTokenizer()
-        self._filter_punctuation = filter_punctuation
-        self._lower = lower
 
         if regex_filters is None:
             regex_filters = []
-
         elif isinstance(regex_filters, str):
             regex_filters = [regex_filters]
         elif not isinstance(regex_filters, list):
             raise ValueError('Value for filters_regex must be string or array')
 
-        self._regex_filters = regex_filters
-        
         stopwords = None
-
         if stopwords_language is None:
             stopwords = []
         elif not isinstance(stopwords_language, str):
@@ -134,7 +130,11 @@ class TextTokenizer(object):
         else:
             stopwords = set(nltk_stopwords.words(stopwords_language))
 
+        self._tokenizer = TweetTokenizer()
+        self._regex_filters = regex_filters
         self._stopwords = stopwords
+        self._filter_punctuation = filter_punctuation
+        self._lower = lower
 
     def tokenize(self, text):
         """
@@ -153,12 +153,39 @@ class TextTokenizer(object):
 
         return tokens
 
+class Phraser(object):
+    """
+    Wrapper for Gensim Phrases: class to find common multiword
+    expressions and join in in tokenized text
+    """
+    def __init__(self, tokenized_texts=None):
+        """
+        Initialize the object creating model to find phrases
+        """
+        self._model = Phrases(
+            tokenized_texts,
+            min_count=1,
+            threshold=1,
+            connector_words=ENGLISH_CONNECTOR_WORDS
+            )
+
+    def phrase(self, tokenized_text):
+        """
+        Takes tokenized text and returns the same list of
+        tokens with phrases if found (a phrase is the join of to tokens)
+        """
+        tokenized_text_with_phrases = self._model[tokenized_text]
+
+        return tokenized_text_with_phrases
+
 class BinaryTextClassifierTrainer(object):
     """
     Define objects to train binary text classifiers (1/0)
     """
 
-    def __init__(self, normalizer=None, tokenizer=None, default_hyperparameters=None):
+    def __init__(
+        self, normalizer=None, tokenizer=None, default_hyperparameters=None
+        ):
         """
         Initialize the object with specific utilities to
         preprocess text
@@ -247,7 +274,7 @@ class BinaryTextClassifierTrainer(object):
 
         return model
 
-    def _save_model(self, model=None, vectorizer=None, output_folder=None):
+    def _save_model(self, model=None, vectorizer=None, phraser=None, output_folder=None):
         """
         Save model artifacts
         """
@@ -256,11 +283,13 @@ class BinaryTextClassifierTrainer(object):
         vectorizer_path = os.path.join(output_folder, _VECTORIZER_FILE_NAME)
         normalizer_path = os.path.join(output_folder, _NORMALIZER_FILE_NAME)
         tokenizer_path = os.path.join(output_folder, _TOKENIZER_FILE_NAME)
+        phraser_path = os.path.join(output_folder, _PHRASER_FILE_NAME)
 
         artifacts = [
             [vectorizer, vectorizer_path],
             [self._normalizer, normalizer_path],
-            [self._tokenizer, tokenizer_path]
+            [self._tokenizer, tokenizer_path],
+            [phraser, phraser_path]
         ]
 
         for artifact_info in artifacts:
@@ -359,6 +388,10 @@ class BinaryTextClassifierTrainer(object):
         train_labels = train_dataset[label_field].to_list()
         eval_labels = eval_dataset[label_field].to_list()
 
+        phraser = Phraser(tokenized_texts=train_texts)
+        train_texts = [phraser.phrase(text) for text in train_texts]
+        eval_texts = [phraser.phrase(text) for text in eval_texts]
+
         vectorizer = text.Tokenizer(num_words=num_words)
         vectorizer.fit_on_texts(train_texts)
         x_train = vectorizer.texts_to_matrix(train_texts, mode="tfidf")
@@ -367,8 +400,11 @@ class BinaryTextClassifierTrainer(object):
         y_eval = np.array(eval_labels)
 
         model = self._create_model(hyperparameters=hyperparameters)
-        model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=2)
-        self._save_model(model=model, vectorizer=vectorizer, output_folder=output_folder)
+        model.fit(
+            x_train, y_train, validation_data=(x_eval, y_eval),
+            batch_size=batch_size, epochs=epochs, verbose=2
+            )
+        self._save_model(model=model, vectorizer=vectorizer, phraser=phraser, output_folder=output_folder)
         metrics = self._evaluate_model(model=model, x=x_eval, y=y_eval)
 
         return metrics
@@ -389,6 +425,7 @@ class BinaryTextClassifier(object):
         vectorizer_path = os.path.join(artifacts_folder, _VECTORIZER_FILE_NAME)
         normalizer_path = os.path.join(artifacts_folder, _NORMALIZER_FILE_NAME)
         tokenizer_path = os.path.join(artifacts_folder, _TOKENIZER_FILE_NAME)
+        phraser_path = os.path.join(artifacts_folder, _PHRASER_FILE_NAME)
 
         if not os.path.isfile(model_path):
             raise ValueError('File for model {} not found'.format(model_path))
@@ -397,11 +434,12 @@ class BinaryTextClassifier(object):
         if not os.path.isfile(tokenizer_path):
             raise ValueError('File for tokenizer {} not found'.format(tokenizer_path))
         if not os.path.isfile(normalizer_path):
-            raise ValueError('File for normalizer {} not found'.format(normalizer_path))
+            raise ValueError('File for phraser {} not found'.format(phraser_path))
 
         self._normalizer = self._load_pickle(normalizer_path)
         self._tokenizer = self._load_pickle(tokenizer_path)
         self._vectorizer = self._load_pickle(vectorizer_path)
+        self._phraser = self._load_pickle(phraser_path)
         self._model = load_model(model_path)
 
     def _load_pickle(self, path):
@@ -423,6 +461,7 @@ class BinaryTextClassifier(object):
 
         texts = [self._normalizer.normalize(text) for text in texts]
         texts = [self._tokenizer.tokenize(text) for text in texts]
+        texts = [self._phraser.phrase(text) for text in texts]
         x = self._vectorizer.texts_to_matrix(texts, mode="tfidf")
 
         predictions = self._model.predict(x)

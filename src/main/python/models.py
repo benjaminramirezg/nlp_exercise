@@ -36,14 +36,14 @@ _HYPERPARAMETERS_DESCRIPTION = {
     'dropout': float,
     'train_percent': float,
     'batch_size': int,
-    'epochs': int
+    'epochs': int,
+    'linear': bool
 }
 
 _MODEL_FILE_NAME = 'model.h5'
 _TOKENIZER_FILE_NAME = 'tokenizer.pkl'
 _NORMALIZER_FILE_NAME = 'normalizer.pkl'
 _VECTORIZER_FILE_NAME = 'vectorizer.pkl'
-_PHRASER_FILE_NAME = 'phraser.pkl'
 
 _STOPWORDS_SUPPORTED_LANGUAGES = ['english']
 
@@ -255,14 +255,18 @@ class BinaryTextClassifierTrainer(object):
         num_words = hyperparameters['num_words']
         hidden_layer_size = hyperparameters['hidden_layer_size']
         dropout = hyperparameters['dropout']
+        linear = hyperparameters['linear']
 
         model = Sequential()
-        model.add(Dense(
-            hidden_layer_size, input_shape=(num_words,)
-            ))
-        model.add(Activation("relu"))
-        model.add(Dropout(dropout))
-        model.add(Dense(1))
+        if linear:
+            model.add(Dense(1, input_shape=(num_words,)))
+        else:
+            model.add(Dense(
+                hidden_layer_size, input_shape=(num_words,)
+                ))
+            model.add(Activation("relu"))
+            model.add(Dropout(dropout))
+            model.add(Dense(1))
         model.add(Activation("sigmoid"))
 
         model.compile(
@@ -283,13 +287,11 @@ class BinaryTextClassifierTrainer(object):
         vectorizer_path = os.path.join(output_folder, _VECTORIZER_FILE_NAME)
         normalizer_path = os.path.join(output_folder, _NORMALIZER_FILE_NAME)
         tokenizer_path = os.path.join(output_folder, _TOKENIZER_FILE_NAME)
-        phraser_path = os.path.join(output_folder, _PHRASER_FILE_NAME)
 
         artifacts = [
             [vectorizer, vectorizer_path],
             [self._normalizer, normalizer_path],
-            [self._tokenizer, tokenizer_path],
-            [phraser, phraser_path]
+            [self._tokenizer, tokenizer_path]
         ]
 
         for artifact_info in artifacts:
@@ -388,10 +390,6 @@ class BinaryTextClassifierTrainer(object):
         train_labels = train_dataset[label_field].to_list()
         eval_labels = eval_dataset[label_field].to_list()
 
-        phraser = Phraser(tokenized_texts=train_texts)
-        train_texts = [phraser.phrase(text) for text in train_texts]
-        eval_texts = [phraser.phrase(text) for text in eval_texts]
-
         vectorizer = text.Tokenizer(num_words=num_words)
         vectorizer.fit_on_texts(train_texts)
         x_train = vectorizer.texts_to_matrix(train_texts, mode="tfidf")
@@ -404,7 +402,7 @@ class BinaryTextClassifierTrainer(object):
             x_train, y_train, validation_data=(x_eval, y_eval),
             batch_size=batch_size, epochs=epochs, verbose=2
             )
-        self._save_model(model=model, vectorizer=vectorizer, phraser=phraser, output_folder=output_folder)
+        self._save_model(model=model, vectorizer=vectorizer, output_folder=output_folder)
         metrics = self._evaluate_model(model=model, x=x_eval, y=y_eval)
 
         return metrics
@@ -425,7 +423,6 @@ class BinaryTextClassifier(object):
         vectorizer_path = os.path.join(artifacts_folder, _VECTORIZER_FILE_NAME)
         normalizer_path = os.path.join(artifacts_folder, _NORMALIZER_FILE_NAME)
         tokenizer_path = os.path.join(artifacts_folder, _TOKENIZER_FILE_NAME)
-        phraser_path = os.path.join(artifacts_folder, _PHRASER_FILE_NAME)
 
         if not os.path.isfile(model_path):
             raise ValueError('File for model {} not found'.format(model_path))
@@ -433,13 +430,10 @@ class BinaryTextClassifier(object):
             raise ValueError('File for vectorizer {} not found'.format(vectorizer_path))
         if not os.path.isfile(tokenizer_path):
             raise ValueError('File for tokenizer {} not found'.format(tokenizer_path))
-        if not os.path.isfile(normalizer_path):
-            raise ValueError('File for phraser {} not found'.format(phraser_path))
 
         self._normalizer = self._load_pickle(normalizer_path)
         self._tokenizer = self._load_pickle(tokenizer_path)
         self._vectorizer = self._load_pickle(vectorizer_path)
-        self._phraser = self._load_pickle(phraser_path)
         self._model = load_model(model_path)
 
     def _load_pickle(self, path):
@@ -461,7 +455,6 @@ class BinaryTextClassifier(object):
 
         texts = [self._normalizer.normalize(text) for text in texts]
         texts = [self._tokenizer.tokenize(text) for text in texts]
-        texts = [self._phraser.phrase(text) for text in texts]
         x = self._vectorizer.texts_to_matrix(texts, mode="tfidf")
 
         predictions = self._model.predict(x)

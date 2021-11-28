@@ -93,6 +93,47 @@ The conclusions of the exploratory analysis have been the following:
 
 ## Solution
 
+Given the conclusions in the exploratory analysis of the dataset, one specific approach has been followed to solve the proposed exercise.
+
+#### Unbalanced dataset
+- Enough data to train a model with an undersampled balanced dataset
+- Script `scripts/undersample.csv`
+
+#### Texts in different languages
+- For a baseline solution, given that the vast majority of texts is in English, no specific solution has been proposed.
+- Further solutions with: more data, machine translation or multilingual encoders such as multilingual BERT, USE o SBERT
+
+#### Preprocessing: cleaning and tokenization
+
+- Several classes for cleaning and tokenize text have been implemented in the library `src/main/python/models.py`
+- `TextNormalizer`: unescape escaped unicode characters, remove break of lines and non UTF-8 characters.
+- `TextTokenizer`: wrapper for the NLTK `TeetsTokenizer` that splits text into tokens where specific Twitter tokens as hashtags and user names are preserved as tokens. It has been improved with the ability to filter unwanted tokens by means of regular expresions, a list of stopwords, and the ability to normalize tokens passing them to lower case. It is very important to reduce de size of the dictionary and avoid frequent but non relevant tokens and tring that the bag of words will contain the most relevant words to classify the texts.
+- `TextPhraser`: wraper to a Gensim utility to find common multiword expressions.
+
+#### Vectorization of the texts as a Bag of Words
+
+- Given that we have enough data to train a model with a balanced dataset, we will modelate the problem as a binary classification one. We will build a model as a function that given a text returns the probability that that text is pro-ISIS.
+
+- The text must be vectorized in a way that captures characteristic features of the pro-ISIS ones. As we have seen that pro-ISIS texts tend to have very specific words and phrases, a representation of text as the set of words that contain may be enough. No context-sensitive approach such as RNN or encoders based on _attention_ (transformers) will be needed.
+- So the tokenized text is vectorized as a bag of words by means of a Keras `Tokenizer` object. Words in the bag of words will be representend by _TF-IDF_ (Term frequency-Inverse Document Frequency) that gives a sense of how relevant is the word in that text (the most the word appear in the text and the less appear in the whole dataset, the most is its relevance).
+- The size of the bag of words can be configured. We have used 10000, because we have observed that the 10000 most common words are the most relevant
+
+#### Multilayer Percepton with Sigmoid function
+
+- Our model needs to define a function that is able to map a text into a float between 1 and 0 that represents the probability that the text is pro-ISIS.
+- If we presume that that function can be linear to properly modelize the nature of the problem, we could propose a linear model such as a logistic regression model. Instead, if the relation may be a more complex one, we may use a multilayer perceptron to modelize it. I have decided to take the decision on empirical bases. For that, I've implemented a class `BinaryTextClassifierTrainer` intended to train binary classifiers of texts. It uses Tensorflow and lets configure the topology of the model and its training with several hyperparameters. You can configure a simple logistic regression model without hidden layers that modelize the problem as a linear function. Instead, you can also modelize the problem as a non-linear one with a multilayer perceptron.
+- Anyway, te output layer is always a one-neuron one whese activation function is _sigmoid_, as usually in binary classification problems. This function proyects the logits of the output layer neuron in a range between 1 and 0.   
+
 ## Evaluation
+
+- We have tried different hyperparameter settings to train the models, but we have mainly compared two types of models: a logistic regression one, and a multilayer perceptron.
+
+- We have used three metrics: accuracy, precision and recall.
+- Accuracy is the proportion of right results over the total amount of instances tested
+- Precision id the proportion of right results over the amount of instances predicted as positive
+- Recall is the proportion of right results over the amount of instances that should have been predicted as positives.
+
+Mainly precision and recall give us a precise metric of the performance of the model
+
 
 ## Next steps

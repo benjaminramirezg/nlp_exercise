@@ -5,8 +5,6 @@ This project is a proposal of solution for the exercise proposed in `NLP_exercis
 ## Preparing the environment
 For the solution of this exercise I have used a python evironment that can be recreated as a conda environment by following the next steps:
 
-#### Creating a conda environment _nlp_exercise_
-
 Assuming that we are in the root of the project, the definition of the environment needed to run the different scripts and notebooks can be found in the `conda.yaml` file. It contains the version of python used, and its main dependencies. The virtual environment can be recreated by running the script `scripts/create_conda_env.sh`.
 
 ```
@@ -32,7 +30,7 @@ The last dependency to be installed is _NLTK_ stopwords. It can be installed by 
 $ python install_stopwords.py
 ```
 
-With all those dependencies installed, and the environment activated, the different scripts and notebooks in the exercise can be run.
+With all  those dependencies installed, and the environment activated, the different scripts and notebooks in the exercise can be run.
 
 ## Structure of the project
 
@@ -40,6 +38,9 @@ With all those dependencies installed, and the environment activated, the differ
 nlp_exercise
 │   README.md
 │   conda.yaml    
+│
+└───scripts
+│       ...
 │
 └───config
 │       config.lr01.json
@@ -66,7 +67,7 @@ nlp_exercise
 └───models
 │       modellr01
 │       modelmlp01
-│
+│ 
 └───notebooks
 │       dataset_analysis.ipynb
 │       model_evaluation.ipynb
@@ -99,41 +100,80 @@ nlp_exercise
 - `notebooks` contains two notebooks with the parts of the exercise that requiere visualization of plots:
     - In `dataset_analysis.ipynb` I show the preliminar exploratory analysis of the dataset that I did.
     - In `evaluation_model.ipynb` I show the evaluation that I did of the models `models/modellr01` and `models/modelmlp01` that I have trained.
-  
+- `scripts` contains several scripts that can be run to create a conda virtual environment with all dependencies needed to run the different scripts and notebooks in the project.
 
+## Execution of the scripts
 
-Assuming that we are in the root of the project, in the `it` folder there are several scripts that can be run to easily test the code.
+In this project I have trained two different models that can be used to take a tweet and predict if it is a pro-ISIS one or it isn't. The models have been saved in:
 
-#### Prepare the dataset
+ - `models/modellr01`
+ - `models/modelmlp01`
 
-The script `it/test.01.sh` can be run to prepare the dataset that will be used to train and evaluate models.
+To train the models I have taken the original dataset `data/Tweets.csv` and I have preprocessed in a specific way. The result of that preprocessing was saved in the folder `data/dataset`.
 
-```
-$ cd it
-$ ./test.01.sh
-```
+I have also used the trained models to predict over new text and evaluate the models.
 
-It takes as input the original dataset in csv format (`data/Tweets.csv`) and undersamples the negative class to get a balanced dataset that saves in (`data/BalancedTweets.csv`).
+#### Preparation of the dataset
 
-#### Training the model
-
-The script `it/test.02.sh` can be run to train a model able to take a tweet and return the probability that it is pro-ISIS.
+The preparation of the dataset has been done by executing the following commands (we assume that we are in the root of the project)
 
 ```
-$ ./test.02.sh
+$ cd src/main/python
+$ python prepare_dataset.py -d ../../../data/Tweets.csv -s ',' -t 'Tweet' -l 'ISIS Flag' -p 0.80 -o ../../../data/dataset/
 ```
 
-It takes as input the `data/BalancedTweets.csv` dataset previously created and a config file that can be found in `config/config.01.json` and trains and evaluate the model. It will print the evaluation of the model in STDOUT and will save the resulting artifacts in the `models/model01` folder.
+The idea is that we take as input the original dataset `data/Tweets.csv` (parameter `-d`), the delimiter of fields of that csv file is `,` (parameter `-s`), the field of the csv where texts must be found is `Tweet` (parameter `-t`), the field where labels must be found is `ISIS Flag` (parameter `-l`), the proportion of data to be used in the training set is `0.80` (parameter `-p`), and the folder where resulting datasets will be saved is `data/dataset/`.   
+
+The result is a set of files saved in `data/dataset/` with a balanced version of the original dataset and the splits of that balanced dataset in training, validation and testing sets (with a proportion of data of 80%, 10% and 10% respectively)   
+
+Notice that we have an example of this command in `it/test.01.sh`.
+
+#### Training of the models
+
+I have trained two different models in order to see what type pf model performs better.
+
+ - `models/modellr01`: a logistic regression model
+ - `models/modelmlp01`: a multilayer perceptron
+
+Assuming that we are in the root of the project, to train the `models/modellr01` model I have run the follwing commnds: 
+
+```
+$ cd ../src/main/python/.
+$ python train.py -d ../../../data/dataset/training_set.csv -v ../../../data/dataset/validation_set.csv -s ',' -t 'Tweet' -l 'ISIS Flag' -o ../../../models/modellr01 -c ../../../config/config.lr01.json
+```
+
+The idea is to train a model according to the configuration that was saved in the file `config/config.01lr` (parameter `-c`). That file contains the configuration needed to train just a logistic regression model. The training data to be used is `data/dataset/training_set.csv` (parameter `-d`), and the validation set is `data/dataset/validation_set.csv` (parameter `-v`). The resulting model will be saved in `models/modellr01`.
+
+The second model that has been trained is a multilayer perceptron. It has been trained and evaluated with the same datasets, but it used a different configuration (parameter `-c`) and was saved in a diferent folder (parameter `-o`)
+
+```
+$ cd ../src/main/python/.
+$ python train.py -d ../../../data/dataset/training_set.csv -v ../../../data/dataset/validation_set.csv -s ',' -t 'Tweet' -l 'ISIS Flag' -o ../../../models/modelmlp01 -c ../../../config/config.mlp01.json
+```
+
+Notice that, scripts `it/test.02.sh` and `it/test.03.sh` contain those commands.
 
 #### Predicting over new text
 
-The script `it/test.03.sh` uses the previously created model `models/model01` to predict over the text of a dataset.
+Once the models have been trained, they can be used to predict over new text. Specifically, the testing set `data/dataset/testing_set.csv` previously created can be used to to test our models.
+
+With the following commands the model `models/modellr01` can be loaded and used to predict over that dataset:
 
 ```
-$ ./test.03.sh
+cd ../src/main/python/.
+python predict.py -d ../../../data/dataset/testing_set.csv -s ',' -t Tweet -l Predictions -m ../../../models/model_lr01 -o ../../../data/dataset/predictions_lr01.csv
 ```
 
-It loads the model saved in `models/model01` and predicts for every texts in `data/BalancedTweets.csv` the probability that it is pro-ISIS. Saves a new version of the dataset with those probabilities in `data/Predictions.csv`
+The output of the process is a new dataset `data/dataset/predictions_lr01.csv` whith the texts and labels of the input dataset plus a new column `Predictions` with the scores predicted by the model.
+
+The corresponding execution with the model `models/modelmlp01` is as follows:
+
+```
+cd ../src/main/python/.
+python predict.py -d ../../../data/dataset/testing_set.csv -s ',' -t Tweet -l Predictions -m ../../../models/model_lr01 -o ../../../data/dataset/predictions_lr01.csv
+```
+
+Those execution can be found also in the scripts `it/test.04.sh` and `it/test.05.sh`.
 
 ## Analysis
 

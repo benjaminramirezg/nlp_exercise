@@ -19,7 +19,8 @@ from models import BinaryTextClassifierTrainer
 
 # Parsing input parameters
 parser = argparse.ArgumentParser()
-parser.add_argument("-d", "--dataset", help="Path to the CSV file with the dataset", required=True)
+parser.add_argument("-d", "--dataset", help="Path to the CSV file with the training dataset", required=True)
+parser.add_argument("-v", "--validation", help="Path to the CSV file with the validation dataset", required=True)
 parser.add_argument("-s", "--separator", help="Character used as field delimiter in CSV", default=',')
 parser.add_argument("-t", "--texts", help="Name of the column of the CSV where text appears", default='text')
 parser.add_argument("-l", "--labels", help="Name of the column of the CSV where labels appear", default='label')
@@ -50,15 +51,19 @@ trainer = BinaryTextClassifierTrainer(
 )
 
 # Reading dataset
-print('Reading dataset {}'.format(args.dataset))
-dataset = pd.read_csv(args.dataset, sep=args.separator)
+print('Reading training dataset {}'.format(args.dataset))
+training_dataset = pd.read_csv(args.dataset, sep=args.separator)
+
+print('Reading validation dataset {}'.format(args.validation))
+validation_dataset = pd.read_csv(args.validation, sep=args.separator)
 
 # Training model
 
 print('Training model')
 
 metrics = trainer.train(
-    dataset=dataset,
+    training_set=training_dataset,
+    validation_set=validation_dataset,
     text_field=args.texts,
     label_field=args.labels,
     output_folder=args.output

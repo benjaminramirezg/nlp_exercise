@@ -32,12 +32,11 @@ log = logging.getLogger('models')
 
 _HYPERPARAMETERS_DESCRIPTION = {
     'num_words': int,
+    'n_hidden_layers': int,
     'hidden_layer_size': int,
     'dropout': float,
-    'train_percent': float,
     'batch_size': int,
-    'epochs': int,
-    'linear': bool
+    'epochs': int
 }
 
 _MODEL_FILE_NAME = 'model.h5'
@@ -46,6 +45,7 @@ _NORMALIZER_FILE_NAME = 'normalizer.pkl'
 _VECTORIZER_FILE_NAME = 'vectorizer.pkl'
 
 _STOPWORDS_SUPPORTED_LANGUAGES = ['english']
+
 
 class ConfigManager(object):
     """Defines objects to manage configuration"""
@@ -253,20 +253,33 @@ class BinaryTextClassifierTrainer(object):
         Create a model to be trained
         """
         num_words = hyperparameters['num_words']
+        n_hidden_layers = hyperparameters['n_hidden_layers']
         hidden_layer_size = hyperparameters['hidden_layer_size']
         dropout = hyperparameters['dropout']
-        linear = hyperparameters['linear']
+        hidden_act_fun = 'relu'
 
         model = Sequential()
-        if linear:
+
+        # For simple logistic regresion without hidden layers
+        if n_hidden_layers < 1:
             model.add(Dense(1, input_shape=(num_words,)))
+        # For multilayer perceptron with 1 or more hidden layers
         else:
+            # First hidden layer
             model.add(Dense(
-                hidden_layer_size, input_shape=(num_words,)
+                hidden_layer_size, input_shape=(num_words,),
+                activation=hidden_act_fun
                 ))
-            model.add(Activation("relu"))
             model.add(Dropout(dropout))
+            # More hidden layers if any
+            for _ in range(n_hidden_layers - 1):
+                model.add(Dense(
+                    hidden_layer_size, activation=hidden_act_fun
+                    ))
+                model.add(Dropout(dropout))
+            # Output layer
             model.add(Dense(1))
+
         model.add(Activation("sigmoid"))
 
         model.compile(
@@ -315,54 +328,54 @@ class BinaryTextClassifierTrainer(object):
         }
         return metrics
 
-    def _split_train_test_texts(self, dataset=None, train_percent=None):
-        """Splits dataset into train and evaluation dataset"""
+    def _check_training_parameters(
+        self, training_set=None, validation_set=None, hyperparameters=None,
+        output_folder=None, text_field=None, label_field=None
+        ):
+        """
+        Checks if input parameters for train method are correct
+        """
+        if not (text_field and label_field):
+            raise AttributeError(
+        'No mandatory parameters text_field or label_field provided'
+        )
 
-        dataset = shuffle(dataset, random_state=0)
-        train_size = int(len(dataset) * train_percent)
-        train_texts = dataset[:train_size]
-        test_texts = dataset[train_size:]
-        return train_texts, test_texts
+        for dataset in (training_set, validation_set):
+            if dataset is None:
+                raise AttributeError(
+            'Both training_set and evaluation_set must be provided'
+            )
+            if not isinstance(dataset, pd.DataFrame):
+                raise ValueError('Datasets must be DataFrame objects')
+            if text_field not in dataset.columns:
+                raise AttributeError(
+            'No column {} provided in dataset'. format(text_field)
+            )
+            if label_field not in dataset.columns:
+                raise AttributeError(
+            'No column {} provided in dataset'. format(text_field)
+            )
+
+        if hyperparameters and not isinstance(hyperparameters, dict):
+            raise ValueError('Hyperparameters must be a dictionary')
+
+        if not (output_folder and isinstance(output_folder, str)):
+            raise ValueError('Output folder must be a string')
 
     def train(
-        self, dataset=None, hyperparameters=None, output_folder=None,
-        text_field=None, label_field=None
+        self, training_set=None, validation_set=None, hyperparameters=None,
+        output_folder=None, text_field=None, label_field=None
         ):
         """
         Trains a model given training data and a specific
         set of hyperparameters
         """
-        if dataset is None:
-            raise AttributeError('Not dataset provided to train')
 
-        if not isinstance(dataset, pd.DataFrame):
-            raise ValueError('Dataset to train must be a DataFrame')
-
-        if not text_field:
-            raise AttributeError(
-        'No mandatory parameter text_field provided'
+        self._check_training_parameters(
+            training_set=training_set, validation_set=validation_set,
+            hyperparameters=hyperparameters, output_folder=output_folder,
+            text_field=text_field, label_field=label_field
         )
-
-        if text_field not in dataset.columns:
-            raise AttributeError(
-        'Column {} provided as text_field not found in dataset'. format(text_field)
-        )
-
-        if not label_field:
-            raise AttributeError(
-        'No mandatory parameter label_field provided'
-        )
-
-        if label_field not in dataset.columns:
-            raise AttributeError(
-        'Column {} provided as label_field not found in dataset'. format(label_field)
-        )
-
-        if hyperparameters and not isinstance(hyperparameters, dict):
-            raise ValueError('Hyperparameters must be a dictionary')
-
-        if output_folder and not isinstance(output_folder, str):
-            raise ValueError('Output folder must be a string')
 
         if not os.path.isdir(output_folder):
             try:
@@ -375,35 +388,30 @@ class BinaryTextClassifierTrainer(object):
         num_words = hyperparameters['num_words'] 
         batch_size = hyperparameters['batch_size']
         epochs = hyperparameters['epochs']
-        train_percent = hyperparameters['train_percent']
 
-        train_dataset, eval_dataset = self._split_train_test_texts(
-            dataset=dataset, train_percent=train_percent
-        )
-
-        train_texts = train_dataset[text_field].to_list()
+        train_texts = training_set[text_field].to_list()
         train_texts = [self._normalizer.normalize(text) for text in train_texts]
         train_texts = [self._tokenizer.tokenize(text) for text in train_texts]
-        eval_texts = eval_dataset[text_field].to_list()
-        eval_texts = [self._normalizer.normalize(text) for text in eval_texts]
-        eval_texts = [self._tokenizer.tokenize(text) for text in eval_texts]
-        train_labels = train_dataset[label_field].to_list()
-        eval_labels = eval_dataset[label_field].to_list()
+        val_texts = validation_set[text_field].to_list()
+        val_texts = [self._normalizer.normalize(text) for text in val_texts]
+        val_texts = [self._tokenizer.tokenize(text) for text in val_texts]
+        train_labels = training_set[label_field].to_list()
+        val_labels = validation_set[label_field].to_list()
 
         vectorizer = text.Tokenizer(num_words=num_words)
         vectorizer.fit_on_texts(train_texts)
         x_train = vectorizer.texts_to_matrix(train_texts, mode="tfidf")
         y_train = np.array(train_labels)
-        x_eval = vectorizer.texts_to_matrix(eval_texts, mode="tfidf")
-        y_eval = np.array(eval_labels)
+        x_val = vectorizer.texts_to_matrix(val_texts, mode="tfidf")
+        y_val = np.array(val_labels)
 
         model = self._create_model(hyperparameters=hyperparameters)
         model.fit(
-            x_train, y_train, validation_data=(x_eval, y_eval),
+            x_train, y_train, validation_data=(x_val, y_val),
             batch_size=batch_size, epochs=epochs, verbose=2
             )
         self._save_model(model=model, vectorizer=vectorizer, output_folder=output_folder)
-        metrics = self._evaluate_model(model=model, x=x_eval, y=y_eval)
+        metrics = self._evaluate_model(model=model, x=x_val, y=y_val)
 
         return metrics
 

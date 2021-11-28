@@ -1,4 +1,5 @@
-# - Predicts over texts in ../data/BalancedTweets.csv according to model
-# - saved in ../models/model01
+# - Trains model mlp01 given the dataset in ../data/dataset/training_set.csv
+#   and the config in ../config/config.mlp01.json. Saves the resulting artifacts
+# - in ../models/modelmlp01
 cd ../src/main/python/.
-python predict.py -d ../../../data/BalancedTweets.csv -s ',' -t Tweet -l Predictions -m ../../../models/model01 -o ../../../data/Predictions.csv
+python train.py -d ../../../data/dataset/training_set.csv -v ../../../data/dataset/validation_set.csv -s ',' -t 'Tweet' -l 'ISIS Flag' -o ../../../models/modelmlp01 -c ../../../config/config.mlp01.json

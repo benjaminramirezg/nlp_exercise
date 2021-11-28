@@ -3,7 +3,7 @@
 This project is a proposal of solution for the exercise proposed in `NLP_exercise.pdf`. In short, the exercise provides a dataset of tweets labeled as 1 or 0, where 1 indicates that the tweet seems to be a pro-ISIS one and the 0 indicates that it doesn't. The goal is to build a solution able to take a tweet and retrieve the probability that it is a pro-ISIS one.
 
 ## Preparing the environment
-For the solution of this exercise I have used a python evironment that can be recreated, for example, as a conda environment, by following the next steps:
+For the solution of this exercise I have used a python evironment that can be recreated as a conda environment by following the next steps:
 
 #### Creating a conda environment _nlp_exercise_
 
@@ -20,7 +20,7 @@ The name of the resulting environment will be _nlp_exercise_. Once it has been c
 $ conda activate nlp_exercise
 ```
 
-The first additional dependency is _FastText_. It will be used to perform language identification. It can be installed by running the script `scripts/install_fasttext.sh`.
+The first additional dependency is _FastText_. It will be used to do language identification. It can be installed by running the script `scripts/install_fasttext.sh`.
 
 ```
 $ ./install_fasttext.sh
@@ -32,9 +32,75 @@ The last dependency to be installed is _NLTK_ stopwords. It can be installed by 
 $ python install_stopwords.py
 ```
 
-That's all. With all those dependencies installed, and the environment activated, the different scripts and notebooks in the exercise can be run.
+With all those dependencies installed, and the environment activated, the different scripts and notebooks in the exercise can be run.
 
-## Quickstart
+## Structure of the project
+
+```
+nlp_exercise
+│   README.md
+│   conda.yaml    
+│
+└───config
+│       config.lr01.json
+│       config.mlp01.json
+│   
+└───data
+│    │   Tweets.xlsx
+│    │   Tweets.csv
+│    │
+│    └────dataset
+│             balanced_dataset.csv
+│             training_set.csv
+│             validation_set.csv
+│             testing_set.csv
+│             ...
+│
+└───it
+│       test.01.sh
+│       test.02.sh
+│       test.03.sh
+│       test.04.sh
+│       test.05.sh
+│
+└───models
+│       modellr01
+│       modelmlp01
+│
+└───notebooks
+│       dataset_analysis.ipynb
+│       model_evaluation.ipynb
+│
+└───src/main/python
+        models.py
+        train.py
+        predict.py
+        prepare_dataset.py
+
+```
+
+- `src/main/python` contains the main code of the project. With this code you can prepare a dataset from the original `data/Tweets.csv` file, use it to train a model, and use that model to predict over new text: 
+    - `prepare_dataset.py` is a script that takes an original dataset, undersamples it if needed to make sure that we have a balanced dataset, and splits it into training set, validation set and testing set.
+    - `train.py` is a script to launch the training of a new model, given a dataset and a config file.
+    - `predict.py` is a script that takes a previously trained model and a dataset, and predicts over the dataset according to the model.
+    - `model.py` is the library in which the majority of the code has been written. The rest of scripts and notebooks just use the classes defined here. It contains, among others:
+        - A class `TextNormalizer` intended to clean and normalize raw text (manage unicode characters and break lines for example)
+        - A class `TextTokenizer` intended to tokenize raw text and filter non interesting tokens
+        - A class `BinaryTextClassifierTrainer` intended to train models for binary classification of text
+        - A class `BinaryTextClassifier` intended to load a previously trained model and predict over text
+- `data` contains all the datasets used and created in the project:
+    - `Tweets.xlsx` is the original dataset proposed in the exercise.
+    - `Tweets.csv` is the same dataset exported in csv format, a more handy format to be used by code.
+    - `datasets/` is a folder that contains a version of `Tweets.csv` suitable to be used to train and evaluate models. The original dataset was undersampled to make sure that it is a balanced one, and it was splitted into training, validation and testing sets. It is the result of executing `prepare_dataset.py` over `Tweets.csv`.
+- `it` contains a bunch of integration tests. They may be specially interesting because contain examples of execution of the code in `src/main/python`. Specifically, they contain the commands that I used to create the dataset in `data/dataset` and the trained models in `models`.
+
+- `config` contains the configuration settings that were used to train  different models. Specifically, `config/config.lr01.json` was used to train the model `models/modellr01` and `config/config.mlp01.json` was used to train the model `models/modelmlp01`.
+- `model` is the folder where trained models have been saved
+- `notebooks` contains two notebooks with the parts of the exercise that requiere visualization of plots:
+    - In `dataset_analysis.ipynb` I show the preliminar exploratory analysis of the dataset that I did.
+    - In `evaluation_model.ipynb` I show the evaluation that I did of the models `models/modellr01` and `models/modelmlp01` that I have trained.
+  
+
 
 Assuming that we are in the root of the project, in the `it` folder there are several scripts that can be run to easily test the code.
 

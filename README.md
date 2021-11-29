@@ -348,7 +348,16 @@ The results are as follows:
 | F1 score  |          0.934       |           0.936        |
 
 
-The conclusions about the performance of the model depend on the requirements of the specific use case in which the model would be used. In a specific use case, the recall score, for example may be not high enough, because finding almos all pro-ISIS tweets is critical. But in general, we can say the the performance seems relatively good.
+#### Conclusions
 
+The conclusions about the performance of the model depend on the requirements of the specific use case in which the model would be used. In a specific use case, the recall score, for example may be not high enough, because finding almos all pro-ISIS tweets is critical. But in general, we can say the the performance seems relatively good. Notice that, given that the dataset used to train and evaluate are well-balanced, We can be confident about metrics like precision and accuracy. 
+
+However I've wondered how the model behaves with realy hard problems: against-ISIS texts that have the kind of words that typically appear in the pro-ISIS tweets. The problem here is that they are few in the dataset. In fact, I've searched all negative tweets in the original dataset that contain the word _ISIS_ and I've predicted with one of my models over them. It can be seen here: `notebooks/evaluation_model.ipynb`. The results are poor, as I guesed. The problem is that this kind of text has very few instances even in the original ~140000 dataset: 19 texts with the word _syria_, 9 with _#syria_, 39 with the word _isis_, 3  with the word_#isis_.
+
+Anyway, they should be collected and added to the balanced dataset. This is an important issue that should be tackled in a future version. I suggest doing clustering or topic modeling over the negative tweets of the original dataset in order to understand what specific clusters or topics should be included in a future balanced version of the dataset. Another approach to get that data is using the current models to find texts labelled as 0 but with high score returned by the model
 
 ## Next steps
+
+- Including multilingual support
+- Refactorize the dataset to oversample those tweets labeled with 0 that have frequent words in the positive tweets such as _ISIS_, _syria_ and so on.
+- I guess that differences between positive and negative words will be more sutile. Maybe context-sensitivity and the aid of transfler learning coud be useful 

@@ -1,14 +1,17 @@
 # ##############################################################################
 #
-# Version: 0.0.1 (26 November 2021)
+# Version: 0.0.1 (29 November 2021)
 # Author: Benjamín Ramírez (benjaminramirezg@gmail.com)
 #
 # ##############################################################################
 
 """
-Script to prepare the dataset. It undersamples the most populated
-category to get a balanced version of the datasets and splits it
-into training, validation and testing sets
+Script to prepare the dataset suitable to train and evaluate a model
+
+It takes as input an original CSV dataset.
+It undersamples the most populated category to get a balanced version of the dataset
+It splits the resulting balanced dataset into training, validation and testing sets
+It saves all resulting datasets in an output folder
 """
 
 import os
@@ -16,13 +19,22 @@ import argparse
 import pandas as pd
 from sklearn.utils import shuffle
 
+# Names of the files that will be created as output
 _BALANCED_DATASET_FILE_NAME = 'balanced_dataset.csv'
 _TRAINING_SET_FILE_NAME = 'training_set.csv'
 _VALIDATION_SET_FILE_NAME = 'validation_set.csv'
 _TESTING_SET_FILE_NAME = 'testing_set.csv'
 
 def split_train_val_test(dataset=None, train_proportion=None):
-    """Splits dataset into train and evaluation dataset"""
+    """
+    Splits dataset into train and evaluation dataset
+
+    :param dataset: DataFrame with the input dataset to be splitted
+    :param train_proportion: float between 0 and 1 that defines the
+                             proportion of data that will be destined
+                             to training
+    :return: three datasets of type DataFrame (train, validation, test)
+    """
 
     dataset = shuffle(dataset, random_state=0)
     train_size = int(len(dataset) * train_proportion)
@@ -39,6 +51,8 @@ def undersample(dataset=None):
     """
     Creates balanced version of the dataset by undersampling
     the largest class
+    :param dataset: DataFrame with the input dataset to be undersample
+    :return: the undersampled dataset of type DataFrame
     """
     # Spliting datasets by classes
     positive_dataset = dataset[dataset[args.labels]==1]

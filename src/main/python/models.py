@@ -1,6 +1,6 @@
 # ##############################################################################
 #
-# Version: 0.0.1 (24 November 2021)
+# Version: 0.0.1 (29 November 2021)
 # Author: Benjamín Ramírez (benjaminramirezg@gmail.com)
 #
 # ##############################################################################
@@ -30,6 +30,8 @@ from tensorflow.keras.layers import Dense, Activation, Dropout
 
 log = logging.getLogger('models')
 
+# Definition of hyperparameters that must be defined
+# to create a scpecific kind of model
 _HYPERPARAMETERS_DESCRIPTION = {
     'num_words': int,
     'n_hidden_layers': int,
@@ -39,26 +41,43 @@ _HYPERPARAMETERS_DESCRIPTION = {
     'epochs': int
 }
 
+# Names of the files where model and preprocessing objects
+# will be serialized
 _MODEL_FILE_NAME = 'model.h5'
 _TOKENIZER_FILE_NAME = 'tokenizer.pkl'
 _NORMALIZER_FILE_NAME = 'normalizer.pkl'
 _VECTORIZER_FILE_NAME = 'vectorizer.pkl'
 
+# Available languages with stopword list
 _STOPWORDS_SUPPORTED_LANGUAGES = ['english']
 
 
 class ConfigManager(object):
-    """Defines objects to manage configuration"""
+    """
+    Defines objects to manage configuration dictionaries
+    The configuration dictionary is loaded from a file 
+    """
 
     def __init__(self, config_file=None):
-        """Loads parameter values from fole"""
+        """
+        Loads configuration dictionary from a json file
+        and saves it as object attribute
+
+        :param config_file: path to the json file where configuration is saved
+        :return: None
+        """
         parameters = {}
         with open(config_file, 'r') as filehandle:
             parameters = json.loads(filehandle.read())
         self._parameters = parameters
 
     def get_(self, param):
-        """Returns the value in the config for a paramaters"""
+        """
+        Returns the value in the config for the parameter passed as argument
+
+        :param param: parameters whose value must be returned
+        :return: the value of the parameter passed as argument
+        """
         value = None
         if param in self._parameters:
             value = self._parameters[param]
@@ -66,11 +85,17 @@ class ConfigManager(object):
 
 class TextNormalizer(object):
     """
-    Define objects intended to normalize text
+    Defines objects intended to normalize text
     """
     def __init__(self, normalize_unicode=None, remove_break_lines=None):
         """
         Initialize the object with specific parameters
+
+        :param normalize_unicode: boolean value that indicates if unicode
+                                  characters must be normalized
+        :param remove_break_lines: boolean value that indicates if break
+                                   lines (\n) must be removed
+        :return: None
         """
         self._normalize_unicode = normalize_unicode
         self._remove_break_lines = remove_break_lines
@@ -78,6 +103,9 @@ class TextNormalizer(object):
     def normalize(self, text):
         """
         Normalize text passed as argument
+
+        :param text: String to be normalized
+        :return: the normalized version of the input string
         """
         if self._normalize_unicode:
             try:
@@ -86,9 +114,9 @@ class TextNormalizer(object):
                 decoded_text = encoded_text.decode('unicode-escape')
                 text = decoded_text.encode('utf-8', 'ignore').decode('utf-8')
             except UnicodeEncodeError:
-                log.info('[ Warning ] Unable to encode Unicode characters')
+                log.warning('[ Warning ] Unable to encode Unicode characters')
             except UnicodeDecodeError:
-                log.info('[ Warning ] Unable to dencode Unicode characters')
+                log.warning('[ Warning ] Unable to dencode Unicode characters')
 
         if self._remove_break_lines:
             text = text.replace("\n", " ")
@@ -106,6 +134,16 @@ class TextTokenizer(object):
         ):
         """
         Initialize the object with specific parameters
+
+        :param filter_punctuation: Boolean value that indicates if
+                                   punctuation must be removed
+        :param regex_filters: list of regex to be used to filter tokens
+        :param lower: Boolean that indicates if tokens must be lower case
+        :param stopword_language: String that indicates the language whose
+                                  stopwords will be used to filter words
+                                  Available languages are in _STOPWORDS_SUPPORTED_LANGUAGES
+                                  None value when no stopwords should be used
+        :return: None 
         """
 
         if regex_filters is None:
@@ -139,6 +177,9 @@ class TextTokenizer(object):
     def tokenize(self, text):
         """
         Tokenize text passed as argument
+
+        :param text: raw text to be tokenized
+        :return: list of tokens (tokens are strings)
         """
         tokens = self._tokenizer.tokenize(text)
 
@@ -157,10 +198,16 @@ class Phraser(object):
     """
     Wrapper for Gensim Phrases: class to find common multiword
     expressions and join in in tokenized text
+    :param tokenized_texts: list of tokens where phrases will be found
+    :return: None
     """
     def __init__(self, tokenized_texts=None):
         """
         Initialize the object creating model to find phrases
+
+        :param tokenized_texts: list of tokenized texts to train
+                                the phraser model
+        :return: None
         """
         self._model = Phrases(
             tokenized_texts,
@@ -172,7 +219,10 @@ class Phraser(object):
     def phrase(self, tokenized_text):
         """
         Takes tokenized text and returns the same list of
-        tokens with phrases if found (a phrase is the join of to tokens)
+        tokens with phrases if found (a phrase is the join of two tokens)
+
+        :param tokenized_text: list of tokens
+        :return: list of tokens where same tokens are phrases (tokens joined)
         """
         tokenized_text_with_phrases = self._model[tokenized_text]
 
@@ -187,8 +237,13 @@ class BinaryTextClassifierTrainer(object):
         self, normalizer=None, tokenizer=None, default_hyperparameters=None
         ):
         """
-        Initialize the object with specific utilities to
-        preprocess text
+        Initialize the object with specific parameters
+
+        :normalizer: object of class TextNormalizer
+        :tokenizer: object of class TextTokenizer
+        :default_hyperparameters: dictionary with default hyperparameters
+                                  to setup the model
+        :return: None
         """
         self._normalizer = normalizer
         self._tokenizer = tokenizer
@@ -200,8 +255,11 @@ class BinaryTextClassifierTrainer(object):
 
     def _check_default_hyperparameters(self, hyperparameters):
         """
-        Checks that all hyperparameters have been provided
+        Checks that all default hyperparameters have been provided
         and in a proper way
+
+        :param hyperparameters: Dict with hyperparameters to setup the model
+        :return: None
         """
 
         for hyperparameter, type_ in _HYPERPARAMETERS_DESCRIPTION.items():
@@ -215,6 +273,9 @@ class BinaryTextClassifierTrainer(object):
     def _check_hyperparameters(self, hyperparameters):
         """
         Checks that hyperparameters provided are correct
+
+        :param hyperparameter: Dict with hyperparameters to setup the model
+        :return: Dict with hyperparameters
         """
         for hyperparameter in hyperparameters:
             if hyperparameter not in _HYPERPARAMETERS_DESCRIPTION:
@@ -239,6 +300,9 @@ class BinaryTextClassifierTrainer(object):
         """
         Return hyperparameter values if provided. Otherwise default
         values are provided
+
+        :param hyperparameters: Dict with hyperparameters
+        :return: Dict with hyperparameters
         """
         if not hyperparameters:
             hyperparameters = self._default_hyperparameters
@@ -251,6 +315,9 @@ class BinaryTextClassifierTrainer(object):
     def _create_model(self, hyperparameters=None):
         """
         Create a model to be trained
+
+        :hyperparameters: Dict with hyperparameters to setup the model
+        :return: model to be trained
         """
         num_words = hyperparameters['num_words']
         n_hidden_layers = hyperparameters['n_hidden_layers']
@@ -291,9 +358,14 @@ class BinaryTextClassifierTrainer(object):
 
         return model
 
-    def _save_model(self, model=None, vectorizer=None, phraser=None, output_folder=None):
+    def _save_model(self, model=None, vectorizer=None, output_folder=None):
         """
-        Save model artifacts
+        Save model artifacts in output folder
+
+        :param model: model object to be saved
+        :param vectorizer: vectorizer object to be saved
+        :param output_folder: path to the folder where artifacts will be saved
+        :return: None
         """
 
         model_path = os.path.join(output_folder, _MODEL_FILE_NAME)
@@ -320,6 +392,11 @@ class BinaryTextClassifierTrainer(object):
     def _evaluate_model(self, model=None, x=None, y=None):
         """
         Evaluate model
+
+        :param model: trained model to be evaluated
+        :param x: Input vectors to feed the model to evaluate
+        :param y: Outputs to compare with the predictions of the model
+        :return: None
         """
         evaluation = model.evaluate(x, y)
         metrics = {
@@ -334,6 +411,14 @@ class BinaryTextClassifierTrainer(object):
         ):
         """
         Checks if input parameters for train method are correct
+
+        :param training_set: DataFrame with the dataset for training
+        :param validation_set: DataFrame with the dataset for validating
+        :param hyperparameters: Dict with hyperparameters to setup the model
+        :param output_folder: Path to the folder where trained dataset will be saved
+        :param text_field: Name of the column where texts must be found in datasets
+        :param label_field: Name of the column where labels must be found in datasets
+        :return: None
         """
         if not (text_field and label_field):
             raise AttributeError(
@@ -369,6 +454,14 @@ class BinaryTextClassifierTrainer(object):
         """
         Trains a model given training data and a specific
         set of hyperparameters
+
+        :param training_set: DataFrame with the dataset for training
+        :param validation_set: DataFrame with the dataset for validating
+        :param hyperparameters: Dict with hyperparameters to setup the model
+        :param output_folder: Path to the folder where trained dataset will be saved
+        :param text_field: Name of the column where texts must be found in datasets
+        :param label_field: Name of the column where labels must be found in datasets
+        :return: Dict with metrics with the evaluation of the model
         """
 
         self._check_training_parameters(
@@ -423,6 +516,9 @@ class BinaryTextClassifier(object):
     def __init__(self, artifacts_folder=None):
         """
         Loads model from serialized objctes in artifacts_folder
+
+        :param artifacts_folder: Folder of the model to be loaded
+        :return: None
         """
         if not os.path.isdir(artifacts_folder):
             raise ValueError('Artifacts folder {} not found'.format(artifacts_folder))
@@ -445,7 +541,12 @@ class BinaryTextClassifier(object):
         self._model = load_model(model_path)
 
     def _load_pickle(self, path):
-        """Loads pickle serialized object"""
+        """
+        Loads pickle serialized object
+
+        :param path: path to the artifact to be loaded
+        :return: artifact object
+        """
         artifact = None
         with open(path, 'rb') as filehandle:
             artifact = pickle.load(filehandle)
@@ -453,8 +554,11 @@ class BinaryTextClassifier(object):
 
     def predict(self, texts):
         """
-        Takes a text and returns a value between 1 and 0
-        according to the loaded model
+        Takes one ot more texts and returns a value between 1 and 0
+        for every text, according to the loaded model
+
+        :param texts: text or list of texts to be predicted
+        :return: prediction (float from 0 to 1) or list of predictions
         """
         if isinstance(texts, str):
             texts = [texts]

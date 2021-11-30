@@ -1,12 +1,16 @@
 # ##############################################################################
 #
-# Version: 0.0.1 (26 November 2021)
+# Version: 0.0.1 (29 November 2021)
 # Author: Benjamín Ramírez (benjaminramirezg@gmail.com)
 #
 # ##############################################################################
 
 """
 Script to launch the training of a model of binary classification of text
+
+A training dataset and a validation dataset must be provided for training
+A configuration file must be provided to setup the model and the preprocessing
+The resulting model will be saved in a folder and the metrics will be printed in STDOUT
 """
 
 import json
@@ -58,7 +62,6 @@ print('Reading validation dataset {}'.format(args.validation))
 validation_dataset = pd.read_csv(args.validation, sep=args.separator)
 
 # Training model
-
 print('Training model')
 
 metrics = trainer.train(
